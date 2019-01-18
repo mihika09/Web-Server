@@ -1,75 +1,125 @@
 import socket
 
-
-def start_line_parser(s):
-
-	try:
-		method = s[0]
-		request_target = s[1]
-		http_version = s[2]
-		print("method: ", method, "request_target: ", request_target, "http_version: ", http_version)
-		return (method, request_target, http_version)
-
-	except err:
-		print("err: ", err)
-		return -1
-
-
-def header_parser(request):
-
-	request = request
-	dct = {}
-	for i in request:
-		x = i.index(':')
-		key = i[0:x].strip()
-		value = i[x+1:].strip()
-		dct[key] = value
-
-	print("dct: ",dct)
-
-
-def request_parser(request):
-	x = request.index('\n')
-	s = request[0:x].strip().split()
-	slp = start_line_parser(s)
-	if slp == -1:
-		print("Bad Request")
-		return -1
-
-	else:
-		request = request[x+1:].strip().split('\n')
-		header_parser(request)
-		return slp[1]
-
-		
-
+HOST = ''
 PORT = 8888
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sock.bind(('', PORT))
-sock.listen(1)
-print("Serving on HTTP port: ", PORT)
-while True:
-	cliconn, cliaddr = sock.accept()
-	request = cliconn.recv(1024).decode()
-	# print("Request: ", request)
-	res = request_parser(request)
 
-	if res == -1:
-		sys.exit()
 
-	if res == '/':
-		res = '/index.html'
+def get_handler(dct, req):
 
+	if len(req) > 0:
+		return "Message Body not expected"
+
+	if dct["Request_Target"] == '/':
+		dct["Request_Target"] += "index.html"
+
+	filepath = '/Users/mallikamohta/Desktop/Mihika/Static'+dct["Request_Target"]
+	print("filepath: ", filepath)
 	try:
-		fin = open(res[1:])
-		content = fin.read()
-		fin.close()
+		file = open(filepath)
+		content = file.read()
+		file.close()
 
 	except FileNotFoundError:
-		content = '<h1>File Not Found</h1>'
+		content = "File not found"
 
-	http_response = 'HTTP/1.1 200 OK\n\n' + content
-	
-	cliconn.send(http_response.encode())
-	cliconn.close()
+	return content
+
+
+def request_header_handler(req, dct):
+
+	y = req.index('\r\n\r\n')
+
+	header = req[0:y]
+	header = header.split('\r\n')
+	print("\nHeader now: ", header)
+
+	req = req[y:]
+
+	if req[0:4] == '\r\n\r\n':
+		req = req[4:]
+		print("Request: ", req)
+		body_len = len(req)
+		print("Body_Len: ", body_len)
+
+	else:
+		print("Bad request")
+		return None
+
+	try:
+		for i in header:
+			# print("i: ", i)
+			if i:
+				key = i[0: i.index(':')]
+				value = i[i.index(':')+1:]
+				dct[key] = value
+
+	except:
+		print("Bad Request")
+		return None
+
+	if "Content-Length" not in dct:
+		conlen = 0
+
+	else:
+		conlen = dct["Content-Length"]
+
+	if conlen != body_len:
+		print("Bad request: expected no message body")
+		return None
+
+	return dct, req
+
+
+def request_handler(req):
+
+	dct = {}
+	x = req.index('\n')
+
+	try:
+		sl = req[0:x].split()
+		if len(sl) == 3:
+			dct["Method"] = sl[0]
+			dct["Request_Target"] = sl[1]
+			dct["Http_Version"] = sl[2]
+		else:
+			raise Exception
+
+	except:
+		print("Bad Request")
+
+	req = req[x+1:]
+	res = request_header_handler(req, dct)
+	if res is not None:
+		dct = res[0]
+		req = res[1]
+
+	if dct["Method"] == 'GET':
+		get_res = get_handler(dct, req)
+		return get_res
+
+
+if __name__ == '__main__':
+
+	listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	listen_socket.bind((HOST, PORT))
+	listen_socket.listen(5)
+	print("Listening on port: ", PORT)
+
+	try:
+		while True:
+			cliconn, cliaddr = listen_socket.accept()
+			request = cliconn.recv(1024).decode()
+			response = request_handler(request)
+			if response is not None:
+				print("Hey")
+				http_response = "HTTP/1.1 200 OK\r\n"+'Content-Type: text/html\r\n\r\n'+response+'\r\n'
+				cliconn.send(http_response.encode())
+			else:
+				http_response = "HTTP/1.1 200 OK\r\n" + "Bad Request"
+			cliconn.close()
+
+	except KeyboardInterrupt:
+		print("Shutting down server")
+
+
