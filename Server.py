@@ -112,7 +112,6 @@ if __name__ == '__main__':
 			request = cliconn.recv(1024).decode()
 			response = request_handler(request)
 			if response is not None:
-				print("Hey")
 				http_response = "HTTP/1.1 200 OK\r\n"+'Content-Type: text/html\r\n\r\n'+response+'\r\n'
 				cliconn.send(http_response.encode())
 			else:
