@@ -20,7 +20,7 @@ def get_handler(dct, req):
 		file.close()
 
 	except FileNotFoundError:
-		content = "File not found"
+		content = "Page not found"
 
 	return content
 
@@ -120,5 +120,3 @@ if __name__ == '__main__':
 
 	except KeyboardInterrupt:
 		print("Shutting down server")
-
-
