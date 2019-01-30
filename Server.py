@@ -6,16 +6,29 @@ host = '127.0.0.1'
 port = 8888
 
 
+METHODS = ['GET', 'POST']
+ROUTES = {method: {} for method in METHODS}
+
+
+def add_route(method, route, controller):
+	ROUTES[method][route] = controller
+
+
+def route_handler(method, controller):
+	response = ROUTES[method][controller]()
+	print("\n*********Response:*********\n", response)
+	return response
+
+
 def generate_encoded_response(response):
 
 	pprint.pprint(response)
 	enc_res = response['http_version']+" "+response['status']+'\r\n'
 	for i, j in response['header'].items():
-		enc_res = enc_res + i + ": " + j + "\r\n"
+		enc_res = enc_res + i + ": " + str(j) + "\r\n"
 
 	enc_res = enc_res+'\r\n'
 	enc_res = enc_res.encode()
-	# print("Encoded response: \n")
 	return enc_res
 
 
@@ -31,11 +44,8 @@ def add_response_headers(response):
 def response_404_not_found(response):
 
 	response['status'] = '404 Not Found'
-	response = add_response_headers(response)
-	print("******Response Headers******\n\n", response)
 	response['header']['Content-Length'] = str(0)
-	print("******Response Headers******\n\n", response)
-	response = generate_encoded_response(response)
+	response = add_response_headers(response)
 	return response
 
 
@@ -65,20 +75,23 @@ def generate_static_response(request):
 		response['body'] = content
 		response['header']['Content-Type'] = mimetypes.guess_type(request['request_target'])[0]
 		response = response_200_ok(response) + response['body']
-		# print("*******Response*******\n", response)
 
 	except FileNotFoundError:
-		response = response_404_not_found(response)
+
+		if request["request_target"] in ROUTES[request["method"]]:
+			# Call the route_handler
+			print("Hello")
+			response['body'] = route_handler(request['method'], request["request_target"]).encode()
+			response = response_200_ok(response) + response['body']
+
+		else:
+			response = response_404_not_found(response)
 
 	return response
-
-	# http_response = "HTTP/1.1 200 OK\r\n" + 'Content-Type:'+mimetype+'\r\n\r\n' + content + '\r\n'
-	# return http_response.encode()
 
 
 def request_parser(header_stream):
 	req_line, *req_header = header_stream.split('\r\n')
-	# print(req_line, "\n")
 	request = dict(zip(['method', 'request_target', 'http_version'], req_line.split()))
 	for hdr in req_header:
 		key = hdr[0:hdr.index(':')].lower()
@@ -92,27 +105,32 @@ def request_parser(header_stream):
 
 
 async def request_handler(reader, writer):
-	header = await reader.readuntil(b'\r\n\r\n')
-	header = header.decode().split('\r\n\r\n')[0]
-	request = request_parser(header)
-	if 'content_length' in request:
-		con_len = request['content_length']
-		request['body'] = await reader.readexactly(con_len)
 
-	response = generate_static_response(request)
-	print("###########Response##############\n", response)
-	print(type(response))
-	writer.write(response)
-	await writer.drain()
-	print("Close the client socket")
-	writer.close()
+	try:
+		header = await reader.readuntil(b'\r\n\r\n')
+		header = header.decode().split('\r\n\r\n')[0]
+		request = request_parser(header)
+		if 'content_length' in request:
+			con_len = request['content_length']
+			request['body'] = await reader.readexactly(con_len)
+
+		response = generate_static_response(request)
+		print("###########Response##############\n", response)
+		print(type(response))
+		writer.write(response)
+		await writer.drain()
+		print("Close the client socket")
+		writer.close()
+
+	except asyncio.streams.IncompleteReadError:
+		print("Bad Request!")
 
 
 def start_server():
 	loop = asyncio.get_event_loop()
 	coro = asyncio.start_server(request_handler, host, port)
 	server = loop.run_until_complete(coro)
-
+	print("Serving on ", host, "port: ", port)
 	try:
 		loop.run_forever()
 	except KeyboardInterrupt:
