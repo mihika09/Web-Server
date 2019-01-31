@@ -1,4 +1,5 @@
 from email.utils import formatdate
+import json
 import asyncio
 import pprint
 import mimetypes
@@ -11,13 +12,22 @@ ROUTES = {method: {} for method in METHODS}
 
 
 def add_route(method, route, controller):
+	print("Hey")
 	ROUTES[method][route] = controller
 
 
-def route_handler(method, controller):
-	response = ROUTES[method][controller]()
-	print("\n*********Response:*********\n", response)
-	return response
+def route_handler(request, response):
+
+	method = request['method']
+	controller = request["request_target"]
+
+	if controller in ROUTES[method]:
+		response['body'] = ROUTES[method][controller](request, response)
+		response['body'] = str(response['body']).encode()
+		response = response_200_ok(response) + response['body']
+		return response
+
+	return None
 
 
 def generate_encoded_response(response):
@@ -59,40 +69,67 @@ def response_200_ok(response):
 	return response
 
 
-def generate_static_response(request):
+def static_file_handler(request, response):
 
-	response = {}
+	if request['method'] == 'GET':
 
-	filepath = '/Users/mallikamohta/Desktop/Mihika/Static' + request["request_target"]
-
-	response['header'] = {}
-
-	try:
-		with open(filepath, 'rb') as file:
-			content = file.read()
+		file_path = '/Users/mallikamohta/Desktop/Mihika/Static' + request["request_target"]
+		try:
+			with open(file_path, 'rb') as file:
+				content = file.read()
 			# file.close()
 
-		response['body'] = content
-		response['header']['Content-Type'] = mimetypes.guess_type(request['request_target'])[0]
-		response = response_200_ok(response) + response['body']
-
-	except FileNotFoundError:
-
-		if request["request_target"] in ROUTES[request["method"]]:
-			# Call the route_handler
-			print("Hello")
-			response['body'] = route_handler(request['method'], request["request_target"]).encode()
+			response['body'] = content
+			response['header']['Content-Type'] = mimetypes.guess_type(request['request_target'])[0]
 			response = response_200_ok(response) + response['body']
+			return response
 
-		else:
-			response = response_404_not_found(response)
+		except FileNotFoundError:
+			return None
 
+	return None
+
+
+def generate_response(request):
+
+	response = {'header': {}}
+	# response['header'] = {}
+
+	returned_response = static_file_handler(request, response)
+	if returned_response is None:
+		returned_response = route_handler(request, response)
+		if returned_response is None:
+			returned_response = response_404_not_found(response)
+
+	response = returned_response
 	return response
+
+
+def body_parser(request):
+
+	if request['content-type'] == 'text/plain':
+		request['body'] = str(request['body'])
+
+	elif request['content-type'] == 'application/json':
+		request['body'] = json.loads(request['body'])
+
+	return request['body']
+
+
+def query_parser(request):
+
+	path, query = request.split("?")
+	q = dict(a.split("=") for a in query.split("&"))
+	return path, q
 
 
 def request_parser(header_stream):
 	req_line, *req_header = header_stream.split('\r\n')
 	request = dict(zip(['method', 'request_target', 'http_version'], req_line.split()))
+
+	if '?' in request['request_target']:
+		request['request_target'], request['query_content'] = query_parser(request)
+
 	for hdr in req_header:
 		key = hdr[0:hdr.index(':')].lower()
 		value = hdr[hdr.index(':')+1:].strip().lower()
@@ -110,13 +147,13 @@ async def request_handler(reader, writer):
 		header = await reader.readuntil(b'\r\n\r\n')
 		header = header.decode().split('\r\n\r\n')[0]
 		request = request_parser(header)
-		if 'content_length' in request:
-			con_len = request['content_length']
+		if 'content-length' in request:
+			con_len = int(request['content-length'])
 			request['body'] = await reader.readexactly(con_len)
+			request['body'] = body_parser(request)
 
-		response = generate_static_response(request)
-		print("###########Response##############\n", response)
-		print(type(response))
+		print("##############Request##############\n", request)
+		response = generate_response(request)
 		writer.write(response)
 		await writer.drain()
 		print("Close the client socket")
