@@ -12,7 +12,7 @@ ROUTES = {method: {} for method in METHODS}
 
 
 def add_route(method, route, controller):
-	print("Hey")
+	# print("method: ", method, "route: ", route, "conteoller: ", controller)
 	ROUTES[method][route] = controller
 
 
@@ -20,6 +20,9 @@ def route_handler(request, response):
 
 	method = request['method']
 	controller = request["request_target"]
+	print("controller: ", controller)
+	print("method: ", method)
+	print("ROUTES[method]: ", ROUTES[method])
 
 	if controller in ROUTES[method]:
 		response['body'] = ROUTES[method][controller](request, response)
@@ -32,7 +35,6 @@ def route_handler(request, response):
 
 def generate_encoded_response(response):
 
-	pprint.pprint(response)
 	enc_res = response['http_version']+" "+response['status']+'\r\n'
 	for i, j in response['header'].items():
 		enc_res = enc_res + i + ": " + str(j) + "\r\n"
@@ -77,7 +79,6 @@ def static_file_handler(request, response):
 		try:
 			with open(file_path, 'rb') as file:
 				content = file.read()
-			# file.close()
 
 			response['body'] = content
 			response['header']['Content-Type'] = mimetypes.guess_type(request['request_target'])[0]
@@ -93,7 +94,6 @@ def static_file_handler(request, response):
 def generate_response(request):
 
 	response = {'header': {}}
-	# response['header'] = {}
 
 	returned_response = static_file_handler(request, response)
 	if returned_response is None:
@@ -105,6 +105,19 @@ def generate_response(request):
 	return response
 
 
+"""def form_parser(request):
+
+	pprint.pprint(request)
+	print("\n\n\n")
+	boundary = (request['content-type'].split(';')[-1]).split('=')[-1]
+	print("boundary: ", boundary)
+	print("\n\n\n")
+	form_list = request['body'].decode().split(boundary)[1:-1]
+	print("form_list: ", form_list)
+	print("\n\n\n")
+	return request"""
+
+
 def body_parser(request):
 
 	if request['content-type'] == 'text/plain':
@@ -112,6 +125,13 @@ def body_parser(request):
 
 	elif request['content-type'] == 'application/json':
 		request['body'] = json.loads(request['body'])
+
+	elif request['content-type'] == 'application/x-www-form-urlencoded':
+		request['body'] = request['body'].decode()
+		request['body'] = dict(query.split('=') for query in request['body'].split('&'))
+
+	# elif request['content-type'][0:request['content-type'].index(';')] == 'multipart/form-data':
+	# 	request['body'] = form_parser(request)
 
 	return request['body']
 
@@ -128,7 +148,7 @@ def request_parser(header_stream):
 	request = dict(zip(['method', 'request_target', 'http_version'], req_line.split()))
 
 	if '?' in request['request_target']:
-		request['request_target'], request['query_content'] = query_parser(request)
+		request['request_target'], request['query_content'] = query_parser(request['request_target'])
 
 	for hdr in req_header:
 		key = hdr[0:hdr.index(':')].lower()
@@ -150,17 +170,21 @@ async def request_handler(reader, writer):
 		if 'content-length' in request:
 			con_len = int(request['content-length'])
 			request['body'] = await reader.readexactly(con_len)
+			# request['body'] = await reader.readuntil(b'\n')
 			request['body'] = body_parser(request)
-
-		print("##############Request##############\n", request)
+		
+		print("Request: \n")
+		pprint.pprint(request)		
 		response = generate_response(request)
+		print("Response: \n")
+		pprint.pprint(response)		
 		writer.write(response)
 		await writer.drain()
-		print("Close the client socket")
+		print("Closing connection")
 		writer.close()
 
 	except asyncio.streams.IncompleteReadError:
-		print("Bad Request!")
+		pass
 
 
 def start_server():
