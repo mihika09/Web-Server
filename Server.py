@@ -12,7 +12,7 @@ ROUTES = {method: {} for method in METHODS}
 
 
 def add_route(method, route, controller):
-	# print("method: ", method, "route: ", route, "conteoller: ", controller)
+	# print("method: ", method, "route: ", route, "controller: ", controller)
 	ROUTES[method][route] = controller
 
 
